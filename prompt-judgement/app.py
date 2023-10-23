@@ -26,7 +26,7 @@ class PromptInjection(kserve.Model):
 
         self.ready = True
 
-    def predict(self, payload: Dict):
+    def predict(self, payload: Dict, *args, **kwargs):
         """
         input:
         {
@@ -44,7 +44,6 @@ parser = argparse.ArgumentParser(prog="prompt injection service")
 # transformer's args
 parser.add_argument(
     "--model_name",
-    required=True,
     default="prompt_judgement",
     help="model name for serving",
 )
