@@ -1,1 +1,1 @@
-FROM baseten/tensorrt_llm_backend
+FROM baseten/tensorrt_llm_backend:v3
