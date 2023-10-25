@@ -1,0 +1,39 @@
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: "prompt-judgement"
+spec:
+  predictor:
+    minReplicas: 1
+    timeout: 60
+    batcher:
+      maxBatchSize: 32
+      maxLatency: 300
+    affinity:
+          nodeAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 1
+              preference:
+                matchExpressions:
+                - key: accelerator
+                  operator: In
+                  values:
+                  - tesla-a100
+    tolerations:
+      - key: "nvidia.com/gpu"
+        operator: "Exists"
+        effect: "NoSchedule"
+    containers:
+      - name: server
+        image: registry.cn-hangzhou.aliyuncs.com/zjuici-zt/prompt-judgement:491da33
+        env:
+          - name: STORAGE_URI
+            value: "pvc://llama-test-vol/models/deepset/deberta-v3-base-injection"
+        resources:
+          limits:
+            nvidia.com/gpu: "1"
+            cpu: "2"
+            memory: 64Gi
+          requests:
+            cpu: "1"
+            memory: 32Gi
