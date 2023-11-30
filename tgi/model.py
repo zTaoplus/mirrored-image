@@ -71,26 +71,33 @@ class Model(ABC):
         prefix_offset: int = 0,
         read_offset: int = 0,
         skip_special_tokens: bool = False,
-        input_text_length:int = None,
-        stop:bool=False
+        input_length:int=None,
+        healed_token_ids: List[int] = None,
     ) -> Tuple[str, int, int]:
         """Hack to hopefully support generate_stream for the maximum number of tokenizers"""
-        # if stop:
-        return self.tokenizer.decode(all_input_ids)[input_text_length:],read_offset, len(all_input_ids)
-        
+
+        new_token_decoded_text = self.tokenizer.decode(all_input_ids[input_length:])
+        healed_token_decoded_text = self.tokenizer.decode(healed_token_ids)
+        if healed_token_decoded_text in new_token_decoded_text:
+            return (
+                new_token_decoded_text[
+                    new_token_decoded_text.index(healed_token_decoded_text) :
+                ],
+                0,
+                0,
+            )
+        else:
+            return new_token_decoded_text, 0, 0
+
         # The prefix text is necessary only to defeat cleanup algorithms in the decode
         # which decide to add a space or not depending on the surrounding ids.
-        
         prefix_text = self.tokenizer.decode(
             all_input_ids[prefix_offset:read_offset],
             skip_special_tokens=skip_special_tokens,
         )
-        
         new_text = self.tokenizer.decode(
             all_input_ids[prefix_offset:], skip_special_tokens=skip_special_tokens
         )
-
-        
 
         if len(new_text) > len(prefix_text) and not new_text.endswith("�"):
             # utf-8 char at the end means it's a potential unfinished byte sequence

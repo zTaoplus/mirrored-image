@@ -28,7 +28,7 @@ class NextTokenChooser:
         typical_p=None,
         do_sample=False,
         seed=0,
-        device="cpu"
+        device="cpu",
     ):
         self.watermark_processor = (
             WatermarkLogitsProcessor(device=device) if watermark else None
@@ -75,7 +75,6 @@ class NextTokenChooser:
         cls,
         pb: generate_pb2.NextTokenChooserParameters,
         device: torch.device,
-        tokenizer=None,
     ) -> "NextTokenChooser":
         return NextTokenChooser(
             watermark=pb.watermark,
@@ -86,16 +85,16 @@ class NextTokenChooser:
             typical_p=pb.typical_p,
             do_sample=pb.do_sample,
             seed=pb.seed,
-            device=device
+            device=device,
         )
 
 
 class StopSequenceCriteria:
     def __init__(self, stop_sequence: str):
         stop_sequence = re.escape(stop_sequence)
+        # self.regex = re.compile(f".*{stop_sequence}$")
         self.regex = re.compile(stop_sequence)
-    
-    # if new token stop is a healing token return false
+
     def __call__(self, output: str) -> bool:
         if self.regex.findall(output):
             return True
@@ -149,7 +148,6 @@ class StoppingCriteria:
         )
 
 
-
 class TokenHealingLogitsProcessor:
     """Token healing.
 
@@ -161,12 +159,13 @@ class TokenHealingLogitsProcessor:
     result in the same tokens at the end of the prompt, or some suffix of the tokens we removed
     could be replaced by a single longer one that crosses the prompt boundary.
     """
+
     def id_to_token(self, id):
         return self.tokenizer.convert_ids_to_tokens([id])[0]
-    
+
     def _build_token_prefix_map(self):
         import pygtrie
-        
+
         """Build a map from token to index."""
         token_map = pygtrie.CharTrie()
         for i in range(self.tokenizer.vocab_size):
@@ -180,11 +179,10 @@ class TokenHealingLogitsProcessor:
 
         return token_map
 
-    def __prefix_matches(self,prefix):
+    def __prefix_matches(self, prefix):
         return [v for arr in self._token_prefix_map.values(prefix=prefix) for v in arr]
 
-
-    def __init__(self, tokenizer, prompt_ids, device=None,bias_value=100.0):
+    def __init__(self, tokenizer, prompt_ids, device=None, bias_value=100.0):
         """Build a new TokenHealingLogitsProcessor.
 
         Note that bias_value is in score space (log-odds normally) and should be
@@ -246,12 +244,9 @@ class TokenHealingLogitsProcessor:
                     token_mask = token_mask.to(device)
                 self.token_masks.append(token_mask)
 
-
         self.num_extensions = 0
 
-
     def __call__(self, input_ids, scores):
-        
         # we only bias the first token generated
         if self.num_extensions >= len(self.extension_tokens):
             return scores
@@ -287,17 +282,8 @@ class HeterogeneousNextTokenChooser:
         typical_p: List[float],
         do_sample: List[bool],
         seeds: List[int],
-        healing_processors=None
     ):
         warpers = []
-        self.healing_processor = None
-        if healing_processors:
-            
-            self.healing_processor = (
-                HeterogeneousProcessorWrapper(
-                    healing_processors
-                )
-            )
 
         self.watermark_processor = (
             HeterogeneousProcessorWrapper(
@@ -357,9 +343,6 @@ class HeterogeneousNextTokenChooser:
         if self.repetition_processor is not None:
             scores = self.repetition_processor(input_ids, scores)
 
-        if self.healing_processor is not None:
-            scores = self.healing_processor(input_ids, scores)
-
         for warper in self.warpers:
             scores = warper(input_ids, scores)
 
@@ -399,7 +382,6 @@ class HeterogeneousNextTokenChooser:
         pb: List[generate_pb2.NextTokenChooserParameters],
         dtype: torch.dtype,
         device: torch.device,
-        healing_processors=None
     ) -> "HeterogeneousNextTokenChooser":
         return HeterogeneousNextTokenChooser(
             watermark=[pb_.watermark for pb_ in pb],
@@ -412,7 +394,6 @@ class HeterogeneousNextTokenChooser:
             seeds=[pb_.seed for pb_ in pb],
             device=device,
             dtype=dtype,
-            healing_processors=healing_processors
         )
 
 

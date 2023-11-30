@@ -79,10 +79,8 @@ class FlashCausalLMBatch(Batch):
 
     # Lengths of all generations present in the batch
     input_lengths: List[int]
-    input_prompt_ids_lengths:List[int]
-    
-    healed_token_ids_lst:List[int]
-    # input_text_lengths: torch.Tensor
+    # NOTE: zt add: lengths of input text decoded by healing token and healing result ids
+    input_text_length: torch.Tensor
 
     input_lengths_tensor: torch.Tensor
     prefix_offsets: List[Optional[int]]
@@ -116,16 +114,23 @@ class FlashCausalLMBatch(Batch):
         device: torch.device,
     ) -> "FlashCausalLMBatch":
         batch_inputs = []
+        input_text_length = []
         max_truncation = 0
         for r in pb.requests:
             batch_inputs.append(r.inputs)
+            input_text_length.append(len(r.inputs))
             max_truncation = max(max_truncation, r.truncate)
+        
 
         batch_tokenized_inputs = tokenizer(
             batch_inputs, truncation=True, max_length=max_truncation
         )["input_ids"]
 
-        # input_text_lengths = []
+
+        # NOTE: zt add: decode input tokens with healed tokens.
+        # NOTE: zt add: append the text length to input_text_length
+        # input_text_length = [len(coded_prompt) for coded_prompt in  tokenizer.batch_decode(batch_tokenized_inputs)]
+        # .append(len(tokenizer.decode(tokenized_input)))
 
         position_ids = []
         cu_seqlen_prefill = [0]
@@ -134,8 +139,6 @@ class FlashCausalLMBatch(Batch):
         slot_indices = []
 
         input_lengths = []
-        input_prompt_ids_lengths = []
-        healed_token_ids_lst = []
         prefix_offsets = []
         read_offsets = []
         all_input_ids = []
@@ -160,32 +163,21 @@ class FlashCausalLMBatch(Batch):
         max_seqlen = 0
         max_length = 0
         max_blocks = 0
-
+        processors = {}
         # Parse batch
         for i, (r, tokenized_input) in enumerate(
             zip(pb.requests, batch_tokenized_inputs)
         ):
+
             # request id -> idx in list mapping
             requests_idx_mapping[r.id] = i
 
             tokenized_input = tokenized_input[-r.truncate :]
 
-            healer = TokenHealingLogitsProcessor(tokenizer,tokenized_input)
-            healed_token_ids = healer.healed_token_ids
-            healed_token_ids_lst.append(healed_token_ids)
-
-            if len(healed_token_ids) > 0:
-                for _ in range(len(healed_token_ids)):
-                    # tokenized_input = len(healed_token_ids) * [tokenizer.pad_token_id] + tokenized_input[: -len(healed_token_ids)] why not work well?
-                    tokenized_input.insert(0,tokenizer.pad_token_id)
 
             input_length = len(tokenized_input)
-            input_prompt_ids_lengths.append(input_length)
             input_lengths.append(input_length)
-
-
-            #input_text_lengths.append(len(tokenizer.decode(tokenized_input + healed_token_ids)))
-
+            
             prefix_offsets.append(input_length - 5)
             read_offsets.append(input_length)
 
@@ -321,10 +313,9 @@ class FlashCausalLMBatch(Batch):
             prefill_next_token_indices=prefill_next_token_indices,
             prefill_cu_outlens=prefill_cu_outlens,
             input_lengths=input_lengths,
-            healed_token_ids_lst=healed_token_ids_lst,
-            input_prompt_ids_lengths=input_prompt_ids_lengths,
-            #input_text_lengths = input_text_lengths,
             input_lengths_tensor=input_lengths_tensor,
+            # NOTE: zt add: update batch properties
+            input_text_length = input_text_length,
             prefix_offsets=prefix_offsets,
             read_offsets=read_offsets,
             all_input_ids=all_input_ids,
@@ -366,12 +357,10 @@ class FlashCausalLMBatch(Batch):
         start_slots = []
         block_tables = []
         all_input_ids = []
+        # NOTE: zt add: input_text_length
+        input_text_length = []
 
         input_lengths = []
-        input_prompt_ids_lengths = []
-        #input_text_lengths = []
-        healed_token_ids_lst = []
-
         prefix_offsets = []
         read_offsets = []
 
@@ -397,10 +386,8 @@ class FlashCausalLMBatch(Batch):
             all_input_ids.append(self.all_input_ids[idx])
 
             input_lengths.append(request_input_length)
-            healed_token_ids_lst.append(self.healed_token_ids_lst[idx])
-            input_prompt_ids_lengths.append(self.input_prompt_ids_lengths[idx])
-
-            #input_text_lengths.append(self.input_text_lengths[idx])
+            # NOTE:zt add: append 
+            input_text_length.append(input_text_length)
 
             prefix_offsets.append(self.prefix_offsets[idx])
             read_offsets.append(self.read_offsets[idx])
@@ -478,10 +465,9 @@ class FlashCausalLMBatch(Batch):
             prefill_next_token_indices=None,
             prefill_cu_outlens=None,
             input_lengths=input_lengths,
-            healed_token_ids_lst=healed_token_ids_lst,
-            input_prompt_ids_lengths=input_prompt_ids_lengths,
-            #input_text_lengths=input_text_lengths,
             input_lengths_tensor=input_lengths_tensor,
+            # NOTE: zt add: update batch
+            input_text_length=input_text_length,
             prefix_offsets=prefix_offsets,
             read_offsets=read_offsets,
             all_input_ids=all_input_ids,
@@ -526,6 +512,7 @@ class FlashCausalLMBatch(Batch):
             )
 
         input_ids = batches[0].input_ids.new_empty(total_batch_size)
+        #healed_input_ids = batches[0].healed_input_ids.new_empty(total_batch_size)
         position_ids = batches[0].position_ids.new_empty(total_batch_size)
         slots = batches[0].slots.new_empty(total_slots)
         slot_indices = batches[0].slot_indices.new_empty(total_batch_size)
@@ -553,10 +540,7 @@ class FlashCausalLMBatch(Batch):
         next_token_chooser_parameters = []
         stopping_criterias = []
         top_n_tokens = []
-
-        #input_text_lengths = []
-        input_prompt_ids_lengths = []
-        healed_token_ids_lst = []
+        input_text_length = []
 
         # Cumulative length
         cumulative_batch_size = 0
@@ -564,7 +548,8 @@ class FlashCausalLMBatch(Batch):
 
         for i, batch in enumerate(batches):
             requests.extend(batch.requests)
-            healed_token_ids_lst.extend(batch.healed_token_ids_lst)
+            input_text_length.extend(batch.input_text_length)
+
 
             if i == 0:
                 requests_idx_mapping = batch.requests_idx_mapping
@@ -580,6 +565,7 @@ class FlashCausalLMBatch(Batch):
 
             # Copy tensors (GPU)
             input_ids[start_index:end_index] = batch.input_ids
+            #healed_input_ids[start_index:end_index] = batch.healed_input_ids
             position_ids[start_index:end_index] = batch.position_ids
             slot_indices[start_index:end_index] = batch.slot_indices + cumulative_slots
             input_lengths_tensor[start_index:end_index] = batch.input_lengths_tensor
@@ -600,8 +586,6 @@ class FlashCausalLMBatch(Batch):
             all_input_ids.extend(batch.all_input_ids)
 
             input_lengths.extend(batch.input_lengths)
-            input_prompt_ids_lengths.extend(batch.input_prompt_ids_lengths)
-
             prefix_offsets.extend(batch.prefix_offsets)
             read_offsets.extend(batch.read_offsets)
 
@@ -632,6 +616,7 @@ class FlashCausalLMBatch(Batch):
             requests=requests,
             requests_idx_mapping=requests_idx_mapping,
             input_ids=input_ids,
+            #healed_input_ids= healed_input_ids,
             position_ids=position_ids,
             cu_seqlen_prefill=None,
             start_slots=start_slots,
@@ -645,10 +630,8 @@ class FlashCausalLMBatch(Batch):
             prefill_next_token_indices=None,
             prefill_cu_outlens=None,
             input_lengths=input_lengths,
-            healed_token_ids_lst=healed_token_ids_lst,
-            input_prompt_ids_lengths=input_prompt_ids_lengths,
-            # input_text_lengths = input_text_lengths,
             input_lengths_tensor=input_lengths_tensor,
+            input_text_length = input_text_length,
             prefix_offsets=prefix_offsets,
             read_offsets=read_offsets,
             all_input_ids=all_input_ids,
@@ -794,6 +777,7 @@ class FlashCausalLM(Model):
             batch.block_tables_tensor = block_tables_tensor
             batch.slots = slots
 
+
         try:
             out = self.forward(batch)
         except Exception as e:
@@ -905,8 +889,7 @@ class FlashCausalLM(Model):
         iterator = zip(
             batch.requests,
             batch.input_lengths,
-            batch.input_prompt_ids_lengths,
-            batch.healed_token_ids_lst,
+            batch.input_text_length,
             batch.prefix_offsets,
             batch.read_offsets,
             batch.stopping_criterias,
@@ -924,8 +907,7 @@ class FlashCausalLM(Model):
         for i, (
             request,
             input_length,
-            input_prompt_ids_length,
-            healed_token_ids,
+            input_text_length,
             prefix_offset,
             read_offset,
             stopping_criteria,
@@ -942,14 +924,14 @@ class FlashCausalLM(Model):
             all_input_ids.append(next_token_id)
 
             # Generated token
-            next_token_text, _, _ = self.decode_token(
+            next_token_text, prefix_offset, read_offset = self.decode_token(
                 all_input_ids,
                 prefix_offset,
                 read_offset,
-                input_length=input_prompt_ids_length,
-                healed_token_ids=healed_token_ids
+                skip_special_tokens=True,
+                input_text_length=input_text_length
             )
-
+            
             # Evaluate stopping criteria
             stop, reason = stopping_criteria(
                 next_token_id,
@@ -977,8 +959,9 @@ class FlashCausalLM(Model):
                         all_input_ids,
                         prefix_offset=0,
                         read_offset=0,
-                        input_length=input_prompt_ids_length,
-                        healed_token_ids=healed_token_ids
+                        skip_special_tokens=True,
+                        stop=True,
+                        input_text_length=input_text_length
                     )
                     generated_text = GeneratedText(
                         output_text,
