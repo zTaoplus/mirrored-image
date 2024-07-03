@@ -1,1 +1,1 @@
-FROM ghcr.io/huggingface/text-generation-inference:2.0.4
+FROM ghcr.io/huggingface/text-generation-inference:2.1.0
