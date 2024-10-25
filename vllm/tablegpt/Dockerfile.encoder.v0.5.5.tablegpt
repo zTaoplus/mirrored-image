@@ -1,0 +1,10 @@
+FROM vllm/vllm-openai:v0.5.5 as base
+
+WORKDIR /workspace
+
+RUN  pip install tabulate -i  https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple --no-cache-dir
+
+COPY encoder-v0.5.5.diff .
+
+RUN patch -p1 -d "$(pip show vllm | grep Location | awk '{print $2}')" < /workspace/encoder-v0.5.5.diff && rm /workspace/encoder-v0.5.5.diff
+
